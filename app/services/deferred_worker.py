@@ -37,7 +37,7 @@ _stop = asyncio.Event()
 
 async def _claim_batch() -> Optional[Dict[str, Any]]:
     from app.channels.base import _db_row
-    row = await _db_row("SELECT * FROM public.k2_claim_deferred_batch_v2(%s, %s) LIMIT 1",
+    row = await _db_row("SELECT * FROM public.k2_claim_deferred_batch_v2($1, $2) LIMIT 1",
                         WORKER_NAME, LEASE_SECONDS)
     return row
 
