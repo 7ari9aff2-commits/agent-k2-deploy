@@ -41,6 +41,8 @@ import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
+
+from app.core import session_compact
 from app.core.js_semantics import is_finite_num as _is_finite_num
 
 # ---------------------------------------------------------------------------
@@ -1768,6 +1770,11 @@ def build_persistent_conversation_state(item: Dict[str, Any], inputs: Dict[str, 
         "at": _utc_now_iso(),
         "channel": _coalesce(_prop(ctx, "channel_type"), None),
     }
+    # Session inactivity compaction (2026-09-22, 2h window): past the gap the prior
+    # raw turns are NOT carried into the new session — their essence travels as the
+    # structured previous_session_summary instead (see app/core/session_compact.py).
+    _boundary = session_compact.session_boundary(previous, _prop(ctx, "received_at"))
+    prior_turns = [] if _boundary else prior_turns
     recent_turns = [
         t for t in (list(prior_turns) + [user_turn] + ([assistant_turn] if not reply_failed else [None]))
         if t is not None
@@ -2487,6 +2494,8 @@ def build_persistent_conversation_state(item: Dict[str, Any], inputs: Dict[str, 
         },
         "last_updated": _utc_now_iso(),
     }
+    if _boundary:
+        state_data["previous_session_summary"] = session_compact.build_session_summary(previous)
     if context_session_reset:
         state_data["active_operation"] = None
         state_data["operation_action"] = None

@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from app.core.config import settings
+from app.core import session_compact
 
 logger = logging.getLogger(__name__)
 
@@ -196,16 +197,22 @@ def build_user_message(
     # and it re-asked answered questions. The last few real exchanges go into the
     # payload; a large model resolves references and mirrors tone from them itself.
     recent = st.get("recent_turns") if isinstance(st.get("recent_turns"), list) else []
+    # Session inactivity compaction (2026-09-22, 2h window): past the gap the raw
+    # prior chat is replaced by the structured summary — no stale-thread drift.
+    compaction = session_compact.compact(st)
     recent_dialogue = []
-    for t in recent[-6:]:
-        if not isinstance(t, dict):
-            continue
-        role = str(t.get("role") or "user")
-        text = str(t.get("content") or t.get("text") or "")[:400]
-        if text.strip():
-            recent_dialogue.append({"role": role, "text": text})
+    if not compaction.get("boundary"):
+        for t in recent[-6:]:
+            if not isinstance(t, dict):
+                continue
+            role = str(t.get("role") or "user")
+            text = str(t.get("content") or t.get("text") or "")[:400]
+            if text.strip():
+                recent_dialogue.append({"role": role, "text": text})
     if recent_dialogue:
         payload["recent_dialogue"] = recent_dialogue
+    if compaction.get("boundary") and compaction.get("summary"):
+        payload["previous_session_summary"] = compaction["summary"]
     return json.dumps(payload, ensure_ascii=False, separators=(", ", ": "))
 
 
