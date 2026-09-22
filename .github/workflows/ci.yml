@@ -15,7 +15,7 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt pytest pyflakes
       - name: unit suite
-        run: pytest -q
+        run: python -m pytest -q
       - name: no undefined names (the _dig class of bug)
         run: |
           python -m pyflakes app > pyflakes.out || true
