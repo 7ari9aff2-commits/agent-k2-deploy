@@ -242,7 +242,7 @@ async def handle_webhook(adapter: ChannelAdapter, headers: Dict[str, str],
            DO UPDATE SET id = webhook_logs.id
            RETURNING id, (xmax = 0) AS is_new""",
         adapter.provider, msg.idempotency_key, _json_compact(msg.raw_body), adapter.workflow_version)
-    log_id = int(row["id"]) if row else None
+    log_id = row["id"] if row else None   # webhook_logs.id is uuid — keep native type
     is_new = bool(row["is_new"]) if row else False
     if not is_new:
         return 200, {"status": "ok", "reason": "duplicate_ignored"}
