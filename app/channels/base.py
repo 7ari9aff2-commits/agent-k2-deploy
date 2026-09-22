@@ -270,6 +270,20 @@ async def handle_webhook(adapter: ChannelAdapter, headers: Dict[str, str],
             await _mark_webhook(log_id, "failed", error="invalid_signature")
         return 401, {"status": "error", "reason": "invalid_signature"}
 
+    # ── agent-feel: typing indicator while the core thinks (bounded, parallel) ─
+    if adapter.supports_typing:
+        import asyncio as _aio
+
+        async def _typing_loop():
+            for _ in range(10):                       # 10 pings × ~4s ≈ 40s coverage
+                try:
+                    await adapter.send_typing(msg, secret_row, unwrap_config(resolution.config))
+                except Exception:
+                    return
+                await _aio.sleep(4)
+
+        _aio.get_event_loop().create_task(_typing_loop())
+
     try:
         # ── patient + conversation (same Supabase RPCs, same param names) ─────
         patient_id = _extract_patient_id(await _supabase_rpc("find_or_create_patient", {
