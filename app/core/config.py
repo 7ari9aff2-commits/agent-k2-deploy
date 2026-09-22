@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     DB_POOL_MIN: int = 2
     DB_POOL_MAX: int = 10
 
+    # Channel adapters (app/channels) — Supabase REST for the patient/conversation RPCs,
+    # same functions the n8n routers called (find_or_create_patient / get_or_create_channel_conversation)
+    SUPABASE_REST_URL: str = "https://iqemryazzthjgztregjx.supabase.co/rest/v1"
+    SUPABASE_SECRET_KEY: str = ""
+
     # Webhook auth — same header contract as the n8n webhook (headerAuth, X-K2-Internal-Token)
     K2_INTERNAL_TOKEN: str = ""
 

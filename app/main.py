@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from app.core.config import settings
 from app.api.v1.message import router as message_router
+from app.channels import router as channels_router
 from app.db.pool import db_pool
 
 
@@ -26,6 +27,7 @@ app = FastAPI(
 )
 
 app.include_router(message_router)
+app.include_router(channels_router)
 
 
 @app.get("/health", tags=["Health"])
