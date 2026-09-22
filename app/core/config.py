@@ -20,6 +20,18 @@ class Settings(BaseSettings):
     SUPABASE_REST_URL: str = "https://iqemryazzthjgztregjx.supabase.co/rest/v1"
     SUPABASE_SECRET_KEY: str = ""
 
+    # Owner alerting bridge (FastAPI failures → owner Telegram) — the n8n Error
+    # Monitor cannot see FastAPI exceptions, so the migrated path alerts directly.
+    TELEGRAM_ALERT_BOT_TOKEN: str = ""
+    TELEGRAM_ALERT_CHAT_ID: str = ""
+
+    # Deferred-batch worker (in-process port of the n8n Deferred Message Worker):
+    # replay deferred bursts through the core, deliver via the n8n dispatcher.
+    DEFERRED_WORKER_ENABLED: bool = True
+    OUTBOUND_DISPATCHER_URL: str = "https://n8n-production-33955.up.railway.app/webhook/inbox-outbound"
+    OUTBOUND_DISPATCHER_TOKEN: str = ""
+    SUPABASE_SECRET_KEY: str = ""
+
     # Webhook auth — same header contract as the n8n webhook (headerAuth, X-K2-Internal-Token)
     K2_INTERNAL_TOKEN: str = ""
 

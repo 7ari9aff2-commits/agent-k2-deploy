@@ -226,9 +226,12 @@ async def process_patient_message(request: Request,
                                                     "status": exit_exc.status_code,
                                                     "body": exit_exc.body.get("response_code") or exit_exc.body.get("error_code")})
         return K2JSONResponse(status_code=exit_exc.status_code, content=exit_exc.body)
-    except Exception:
+    except Exception as exc:
         # n8n routed failures to error workflow KmQZ9bXmmP1YEZht; the sender received a 5xx.
         logger.exception("k2.request.failed", extra={"correlation_id": correlation_id})
+        from app.core import alerting
+        alerting.report_exception("core.request_failed", exc,
+                                  detail=f"conversation {correlation_id}")
         return K2JSONResponse(status_code=500, content={"ok": False, "error_code": "INTERNAL_ERROR",
                                                         "correlation_id": correlation_id})
     finally:

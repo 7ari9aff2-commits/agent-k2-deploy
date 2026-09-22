@@ -320,8 +320,11 @@ async def handle_webhook(adapter: ChannelAdapter, headers: Dict[str, str],
             "x-k2-signature": f"sha256={signature}",
         }
         core_result = await core_runner._run(core_payload, core_headers, payload_str.encode("utf-8"))
-    except Exception:
+    except Exception as exc:
         logger.exception("channels.pipeline_failed", extra={"provider": adapter.provider})
+        from app.core import alerting
+        alerting.report_exception("channels.pipeline_failed", exc,
+                                  detail=f"provider {adapter.provider}")
         if log_id:
             await _mark_webhook(log_id, "failed", error="pipeline_exception")
         return 500, {"ok": False, "error_code": "INTERNAL_ERROR"}
@@ -340,8 +343,11 @@ async def handle_webhook(adapter: ChannelAdapter, headers: Dict[str, str],
     send_error = None
     try:
         await adapter.send(msg, secret_row, unwrap_config(resolution.config), reply_text)
-    except Exception:
+    except Exception as exc:
         logger.exception("channels.send_failed", extra={"provider": adapter.provider})
+        from app.core import alerting
+        alerting.report_exception("channels.send_failed", exc,
+                                  detail=f"provider {adapter.provider}")
         send_error = "send_failed"
 
     if log_id:

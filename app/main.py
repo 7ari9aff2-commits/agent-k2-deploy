@@ -14,7 +14,13 @@ async def lifespan(app: FastAPI):
         await db_pool.get_pool()
     except Exception as exc:
         print(f"[Warning] Could not initialize DB pool at startup: {exc}")
+    if settings.DEFERRED_WORKER_ENABLED:
+        from app.services import deferred_worker
+        deferred_worker.start()
     yield
+    if settings.DEFERRED_WORKER_ENABLED:
+        from app.services import deferred_worker
+        await deferred_worker.stop()
     await db_pool.close()
 
 
