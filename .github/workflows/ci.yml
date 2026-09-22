@@ -1,0 +1,24 @@
+name: tests
+
+on:
+  push:
+  schedule:
+    - cron: '0 3 * * *'   # daily: catches time-dependent test rot within 24h
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt pytest pyflakes
+      - name: unit suite
+        run: pytest -q
+      - name: no undefined names (the _dig class of bug)
+        run: |
+          python -m pyflakes app > pyflakes.out || true
+          if grep -q "undefined name" pyflakes.out; then
+            cat pyflakes.out; exit 1
+          fi
