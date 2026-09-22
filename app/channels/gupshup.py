@@ -77,7 +77,7 @@ class GupshupWhatsAppAdapter(ChannelAdapter):
                    AND ch.is_enabled = true
                    AND c.deleted_at IS NULL
                    AND ch.deleted_at IS NULL
-                   AND ch.config->>'gupshup_app_id' = %s
+                   AND ch.config->>'gupshup_app_id' = $1
                  LIMIT 1"""
         return sql, [app_id]
 

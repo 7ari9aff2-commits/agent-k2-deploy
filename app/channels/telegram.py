@@ -83,7 +83,7 @@ class TelegramAdapter(ChannelAdapter):
                    AND ch.is_enabled = true
                    AND ch.deleted_at IS NULL
                    AND NOT COALESCE((ch.config->>'test_only')::boolean, false)
-                 ORDER BY CASE WHEN ch.config->>'telegram_chat_id' = %s THEN 0 ELSE 1 END,
+                 ORDER BY CASE WHEN ch.config->>'telegram_chat_id' = $1 THEN 0 ELSE 1 END,
                           ch.created_at
                  LIMIT 1"""
         return sql, [chat_id]

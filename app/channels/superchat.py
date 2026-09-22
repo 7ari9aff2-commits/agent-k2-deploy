@@ -69,10 +69,10 @@ class SuperChatAdapter(ChannelAdapter):
                  FROM clinics c
                  JOIN channels ch ON ch.clinic_id = c.id
                  WHERE ch.provider = 'superchat'
-                   AND ch.type = %s
+                   AND ch.type = $1
                    AND ch.status = 'connected'
                    AND ch.is_enabled = true
-                   AND ch.config->>'superchat_channel_id' = %s
+                   AND ch.config->>'superchat_channel_id' = $2
                  GROUP BY ch.config->>'superchat_channel_id'
                  HAVING COUNT(*) = 1
                  LIMIT 1"""

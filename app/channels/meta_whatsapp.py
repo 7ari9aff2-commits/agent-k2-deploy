@@ -86,7 +86,7 @@ class MetaWhatsAppAdapter(ChannelAdapter):
                    AND ch.is_enabled = true
                    AND c.deleted_at IS NULL
                    AND ch.deleted_at IS NULL
-                   AND ch.config->>'meta_phone_number_id' = %s
+                   AND ch.config->>'meta_phone_number_id' = $1
                  LIMIT 1"""
         return sql, [phone_number_id]
 

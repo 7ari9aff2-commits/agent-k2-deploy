@@ -213,14 +213,14 @@ def _json_compact(obj: Dict[str, Any]) -> str:
 async def _mark_webhook(log_id: int, status: str, clinic_id: str = "",
                         channel_id: str = "", error: str = "") -> None:
     if error:
-        await _db_execute("UPDATE webhook_logs SET status = %s, error_message = %s WHERE id = %s",
+        await _db_execute("UPDATE webhook_logs SET status = $1, error_message = $2 WHERE id = $3",
                           status, error, log_id)
         return
     await _db_execute(
         """UPDATE webhook_logs
-           SET status = %s, clinic_id = %s, channel_id = %s,
+           SET status = $1, clinic_id = $2, channel_id = $3,
                processing_time_ms = EXTRACT(EPOCH FROM (now() - received_at)) * 1000
-           WHERE id = %s AND status = 'pending' AND clinic_id IS NULL AND channel_id IS NULL""",
+           WHERE id = $4 AND status = 'pending' AND clinic_id IS NULL AND channel_id IS NULL""",
         status, clinic_id, channel_id, log_id)
 
 
@@ -237,7 +237,7 @@ async def handle_webhook(adapter: ChannelAdapter, headers: Dict[str, str],
     # ── idempotency claim (webhook_logs, same ON CONFLICT trick) ──────────────
     row = await _db_execute(
         """INSERT INTO webhook_logs (provider, idempotency_key, payload, status, received_at, workflow_version)
-           VALUES (%s, %s, %s::jsonb, 'pending', now(), %s)
+           VALUES ($1, $2, $3::jsonb, 'pending', now(), $4)
            ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
            DO UPDATE SET id = webhook_logs.id
            RETURNING id, (xmax = 0) AS is_new""",
@@ -264,7 +264,7 @@ async def handle_webhook(adapter: ChannelAdapter, headers: Dict[str, str],
                   cs.api_token AS api_token, cs.signing_secret AS signing_secret,
                   cs.tenant_identifier AS tenant_identifier
            FROM channels c LEFT JOIN get_channel_secret_db(c.id) cs ON true
-           WHERE c.id = %s""", resolution.channel_id) or {}
+           WHERE c.id = $1""", resolution.channel_id) or {}
     if not adapter.verify_signature(headers, raw_body, secret_row):
         if log_id:
             await _mark_webhook(log_id, "rejected", error="invalid_signature")
@@ -293,8 +293,8 @@ async def handle_webhook(adapter: ChannelAdapter, headers: Dict[str, str],
         core_payload = adapter.core_payload(msg, resolution, patient_id, conversation_id)
         payload_str = _json_compact(core_payload)
         sig_row = await _db_row(
-            """SELECT encode(extensions.hmac(%s::text, secret.signing_secret, 'sha256'), 'hex') AS signature
-               FROM public.get_channel_secret_db(%s::uuid) AS secret
+            """SELECT encode(extensions.hmac($1::text, secret.signing_secret, 'sha256'), 'hex') AS signature
+               FROM public.get_channel_secret_db($2::uuid) AS secret
                WHERE secret.signing_secret IS NOT NULL LIMIT 1""",
             payload_str, resolution.channel_id)
         signature = (sig_row or {}).get("signature") or ""
