@@ -267,7 +267,7 @@ async def handle_webhook(adapter: ChannelAdapter, headers: Dict[str, str],
            WHERE c.id = $1""", resolution.channel_id) or {}
     if not adapter.verify_signature(headers, raw_body, secret_row):
         if log_id:
-            await _mark_webhook(log_id, "rejected", error="invalid_signature")
+            await _mark_webhook(log_id, "failed", error="invalid_signature")
         return 401, {"status": "error", "reason": "invalid_signature"}
 
     try:
@@ -309,7 +309,7 @@ async def handle_webhook(adapter: ChannelAdapter, headers: Dict[str, str],
     except Exception:
         logger.exception("channels.pipeline_failed", extra={"provider": adapter.provider})
         if log_id:
-            await _mark_webhook(log_id, "error", error="pipeline_exception")
+            await _mark_webhook(log_id, "failed", error="pipeline_exception")
         return 500, {"ok": False, "error_code": "INTERNAL_ERROR"}
 
     # ── suppressed handoff / duplicate → acknowledge, stay silent ─────────────
@@ -325,13 +325,13 @@ async def handle_webhook(adapter: ChannelAdapter, headers: Dict[str, str],
     # ── deliver via the provider ──────────────────────────────────────────────
     send_error = None
     try:
-        await adapter.send(msg, secret_row, resolution.config, reply_text)
+        await adapter.send(msg, secret_row, unwrap_config(resolution.config), reply_text)
     except Exception:
         logger.exception("channels.send_failed", extra={"provider": adapter.provider})
         send_error = "send_failed"
 
     if log_id:
-        await _mark_webhook(log_id, "error" if send_error else "processed",
+        await _mark_webhook(log_id, "failed" if send_error else "processed",
                             resolution.clinic_id, resolution.channel_id,
                             error=send_error or "")
     logger.info("channels.turn_done", extra={
@@ -339,6 +339,20 @@ async def handle_webhook(adapter: ChannelAdapter, headers: Dict[str, str],
         "response_code": core_result.get("response_code") if isinstance(core_result, dict) else None,
         "elapsed_ms": int((time.monotonic() - started) * 1000)})
     return 200, {"status": "ok"}
+
+
+def unwrap_config(channel_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize the channel config: asyncpg hands jsonb back as a str, and the
+    telegram lookup returns it nested under the 'config' key."""
+    cfg = channel_cfg if isinstance(channel_cfg, dict) else {}
+    if isinstance(cfg.get("config"), (str, bytes)):
+        try:
+            cfg = dict(cfg, config=json.loads(cfg["config"]))
+        except Exception:
+            pass
+    if isinstance(cfg.get("config"), dict):
+        cfg = dict(cfg, **cfg["config"])
+    return cfg
 
 
 def supports_typing(adapter: ChannelAdapter) -> bool:

@@ -120,9 +120,7 @@ class TelegramAdapter(ChannelAdapter):
 
     @staticmethod
     def _bot_token(channel_cfg: Dict[str, Any]) -> Optional[str]:
-        cfg = channel_cfg if isinstance(channel_cfg, dict) else {}
-        # the lookup returns {"config": {...}} — unwrap the jsonb column
-        if isinstance(cfg.get("config"), dict):
-            cfg = cfg["config"]
+        from app.channels.base import unwrap_config
+        cfg = unwrap_config(channel_cfg)
         token = cfg.get("botToken")
         return str(token) if token else None
