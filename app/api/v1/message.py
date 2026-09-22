@@ -670,11 +670,41 @@ async def _run(inbound: Dict[str, Any], raw_headers: Dict[str, str], raw_body: b
                         "resolve_booking_ids": booking_ids_result,
                         "apply_resolved_booking_ids": apply_ids_result,
                         "clinic_context": clinic_context})
-                    exec_create_result = await repository.execute_approved_create_appointment({
-                        "normalized": normalized, "claim": claim_result, "exec": exec_ctx, **(exec_ctx or {}),
-                        # Reviewer-verified: prepare_execute_input computes `notes` but its
-                        # output was discarded at the call site — $5 notes always bound "".
-                        "notes": (exec_input or {}).get("notes")})
+                    try:
+                        exec_create_result = await repository.execute_approved_create_appointment({
+                            "normalized": normalized, "claim": claim_result, "exec": exec_ctx, **(exec_ctx or {}),
+                            # Reviewer-verified: prepare_execute_input computes `notes` but its
+                            # output was discarded at the call site — $5 notes always bound "".
+                            "notes": (exec_input or {}).get("notes")})
+                    except Exception as exc:
+                        # SLOT-TAKEN RACE (deep review 2026-09-23): the DB function locks
+                        # the slot row FOR UPDATE and raises 55P03 when a concurrent
+                        # booking won — a NORMAL, expected outcome under contention, not
+                        # an infrastructure crash. The DB transaction rolled back, so
+                        # nothing was created (mutation did not execute). Build the
+                        # failure envelope the deterministic layers already understand
+                        # (SLOT_UNAVAILABLE ∈ _ALLOWED_FAILURE ∪ _DEFINITELY_NOT_EXECUTED)
+                        # instead of letting it bubble as a raw 500. The policy then
+                        # reports SLOT_UNAVAILABLE and the composer phrases the
+                        # re-pick reply from that fact.
+                        sqlstate = str(getattr(exc, "sqlstate", "") or "")
+                        if sqlstate != "55P03" and "no longer available" not in str(exc).lower():
+                            raise
+                        exec_create_result = {
+                            "schema_version": 1,
+                            "operation": "create_appointment",
+                            "correlation_id": (exec_ctx or {}).get("correlation_id")
+                                or normalized.get("correlation_id")
+                                or claim_applied.get("operation_id") or None,
+                            "operation_id": claim_applied.get("operation_id"),
+                            "response_code": "SLOT_UNAVAILABLE",
+                            "success": False,
+                            "retryable": False,
+                            "appointment_id": None,
+                            "error_code": "SLOT_UNAVAILABLE",
+                            "error": {"message": str(exc)[:300]},
+                            "mutation_status": "NOT_EXECUTED",
+                        }
                     exec_result = exec_create_result
             elif conditions_post.if_approved_cancel_action(decision):
                 # Wiring (fixed 2026-09-18, reviewer-verified): the executor reads

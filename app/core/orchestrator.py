@@ -255,7 +255,13 @@ def offer_live(offer, clinic, state, now_ts=None):
 
 
 def target_live(target, clinic, now_ts=None):
-    """Source node: System Orchestrator (Policy) — targetLive helper."""
+    """Source node: System Orchestrator (Policy) — targetLive helper.
+
+    INVARIANT (deep review 2026-09-23): a target WITHOUT expires_at stays live
+    forever (deliberate JS parity, opposite of offer_live). Every builder of
+    confirmation_target MUST set expires_at — the builders at the P47/P42/C1
+    rows all do. New code that forgets it creates an immortal target.
+    """
     if not isinstance(target, dict):
         return False
     exp = _date_parse_ms(_js_string(_js_or(target.get('expires_at'), '')))
@@ -892,6 +898,11 @@ def _decide_state_table(inp, now_ts=None):
     doctor_unknown = ent.get('doctor_name') is not None and str(ent.get('doctor_name')).strip() != '' \
         and resolved.get('doctor_match_count') == 0
     if doctor_unknown:
+        # JS parity clears the name so no reply cites a nonexistent doctor — but
+        # the typed name is real patient intent: keep it for the audit trail
+        # before the in-place clear wipes it from the shared contract object
+        # (deep review 2026-09-23: the mutation is on the live reference).
+        patches['booking_context']['doctor_name_rejected'] = ent.get('doctor_name')
         ent['doctor_name'] = None  # mutates contract.entities when present, exactly like the JS
     doctor_given = bool(resolved.get('doctor_id') or ent.get('doctor_name')
                         or patches['booking_context'].get('doctor_id') or patches['booking_context'].get('doctor_name'))
