@@ -13,10 +13,13 @@ staff/handoff exit) — same payload, same auth header as the n8n worker used.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+
+import httpx
 
 from app.core import alerting
 from app.core.config import settings
