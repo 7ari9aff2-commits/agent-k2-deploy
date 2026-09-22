@@ -1304,6 +1304,17 @@ def _decide_state_table(inp, now_ts=None):
 # ── JS semantics shims (String() / Number() / truthiness / || / Date.parse) ──
 
 
+def _dig(obj, *path):
+    """JS ``a?.b?.c`` optional chaining: any non-object link yields None (undefined)."""
+    cur = obj
+    for key in path:
+        if isinstance(cur, dict):
+            cur = cur.get(key)
+        else:
+            return None
+    return cur
+
+
 def _js_string(value):
     """Close JS String() coercion for the value shapes this decision path produces."""
     if value is None:
