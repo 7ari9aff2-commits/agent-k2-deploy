@@ -133,6 +133,9 @@ def test_full_booking_journey(monkeypatch):
                 "public_id": "BK-240918-01"}
 
     monkeypatch.setattr(repo, "execute_approved_create_appointment", fake_create)
+    # the double-booking guard is a REAL DB call — mock it (slot free in this scenario).
+    # Without this mock the test silently hits production Supabase (CI caught it).
+    monkeypatch.setattr(repo, "find_active_appointment_for_slot", lambda ctx: _async({}))
     monkeypatch.setattr(repo, "finalize_operation",
                         lambda c: finalize_calls.append(dict(c)) or _async({"operation_id": c.get("finalize_operation_id")}))
     monkeypatch.setattr(repo, "claim_operation", lambda ctx: _async({
