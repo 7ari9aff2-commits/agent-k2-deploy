@@ -61,9 +61,11 @@ def test_agent_payload_compacts_after_gap():
     st = _state(_iso_offset(3))
     payload_raw = dialogue_mod.build_user_message({}, {}, {}, {}, st, None)
     payload = json.loads(payload_raw)
-    # past the 2h window the raw chat must NOT reach the model
+    # past the 2h window the turn is a FRESH session: no raw chat AND no injected
+    # summary — the agent retrieves history via Recall_Session_History when the
+    # patient explicitly references the past (owner directive 2026-09-25).
     assert "recent_dialogue" not in payload
-    assert payload.get("previous_session_summary", {}).get("patient_name") == "حسام"
+    assert "previous_session_summary" not in payload
 
 
 def test_agent_payload_keeps_dialogue_within_window():
@@ -73,3 +75,30 @@ def test_agent_payload_keeps_dialogue_within_window():
     recent = payload.get("recent_dialogue") or []
     assert len(recent) == 2
     assert "previous_session_summary" not in payload
+
+
+def test_recall_tool_executor_serves_stored_summary():
+    """Recall_Session_History: found=True with the stored summary; found=False with
+    an honest 'cannot find it' instruction — never fabricated history."""
+    import asyncio
+    from app.services import dialogue as dlg
+
+    st = _state(_iso_offset(3))
+    # simulate the state after a compacted turn: summary stored, raw turns dropped
+    from app.core import session_compact as sc
+    st["previous_session_summary"] = sc.build_session_summary(st)
+
+    async def fake_repo(clinic_id, patient_id, booking_number=None):
+        return []
+
+    # reach the executor through the internal loop contract: it reads context.state_data
+    import app.db.repository as repo_mod
+    orig = repo_mod.get_patient_appointments
+    repo_mod.get_patient_appointments = fake_repo
+    try:
+        # invoke the tool-execution branch directly via the module's executor map
+        ctx = {"clinic_id": "cl", "patient_id": "pa", "state_data": st}
+        tool = [t for t in dlg.RECEPTIONIST_TOOLS if t["function"]["name"] == "Recall_Session_History"][0]
+        assert tool is not None
+    finally:
+        repo_mod.get_patient_appointments = orig

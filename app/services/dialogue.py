@@ -197,11 +197,13 @@ def build_user_message(
     # and it re-asked answered questions. The last few real exchanges go into the
     # payload; a large model resolves references and mirrors tone from them itself.
     recent = st.get("recent_turns") if isinstance(st.get("recent_turns"), list) else []
-    # Session inactivity compaction (2026-09-22, 2h window): past the gap the raw
-    # prior chat is replaced by the structured summary — no stale-thread drift.
-    compaction = session_compact.compact(st)
+    # Session compaction (owner directive 2026-09-25): past the 2h gap the turn is a
+    # FRESH conversation — no raw history, no auto-injected summary. The patient who
+    # says 'السلام عليكم' after hours gets a natural reception greeting; the summary
+    # stays in state and is served ONLY when the agent calls Recall_Session_History
+    # (the patient explicitly referenced the past).
     recent_dialogue = []
-    if not compaction.get("boundary"):
+    if not session_compact.session_boundary(st):
         for t in recent[-6:]:
             if not isinstance(t, dict):
                 continue
@@ -211,8 +213,6 @@ def build_user_message(
                 recent_dialogue.append({"role": role, "text": text})
     if recent_dialogue:
         payload["recent_dialogue"] = recent_dialogue
-    if compaction.get("boundary") and compaction.get("summary"):
-        payload["previous_session_summary"] = compaction["summary"]
     return json.dumps(payload, ensure_ascii=False, separators=(", ", ": "))
 
 
@@ -316,11 +316,30 @@ PATIENT_APPOINTMENTS_TOOL = {
     },
 }
 
+SESSION_RECALL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "Recall_Session_History",
+        "description": (
+            "Retrieve the structured summary of this patient's PREVIOUS conversation session "
+            "(before the last 2-hour inactivity gap). Call it ONLY when the patient explicitly "
+            "references the past — e.g. mentions an old booking ('I booked a few days ago'), "
+            "asks about something discussed earlier, or says something like 'remember when I...'. "
+            "Do NOT call it for ordinary greetings or new requests; those start fresh."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+}
+
 RECEPTIONIST_TOOLS = [
     AVAILABILITY_TOOL,
     FAQ_TOOL,
     SERVICES_DOCTORS_TOOL,
     PATIENT_APPOINTMENTS_TOOL,
+    SESSION_RECALL_TOOL,
 ]
 
 
@@ -543,6 +562,19 @@ async def call_primary_model_with_tool(user_message: str, context: Dict[str, Any
                     tool_result = {"appointments": appts, "count": len(appts)}
                 except Exception as exc:
                     tool_result = {"error": str(exc), "appointments": []}
+
+            elif fn_name == "Recall_Session_History":
+                # Server-owned data: the stored summary + the compacted raw turns.
+                # The agent cannot fabricate history — only quote what was saved.
+                st_ctx = context.get("state_data") if isinstance(context.get("state_data"), dict) else {}
+                summary = st_ctx.get("previous_session_summary")
+                if isinstance(summary, dict) and summary:
+                    tool_result = {"found": True, "previous_session_summary": summary}
+                else:
+                    tool_result = {"found": False,
+                                   "note": "No previous-session summary is stored for this conversation. "
+                                           "Tell the patient you cannot find that part of the history "
+                                           "and ask them to restate what they need."}
             else:
                 tool_result = {"error": "UNKNOWN_TOOL"}
 
