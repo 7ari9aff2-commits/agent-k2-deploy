@@ -973,7 +973,21 @@ async def _respond_tail(normalized: Dict[str, Any], state_row: Dict[str, Any], s
         "deepseek_model": [{"usage": u} for u in ((timing or {}).get("agent_usage") or [])],
         "deepseek_result_model": [{"usage": composer_usage}] if composer_usage else [],
         "response_policy_deterministic": policy})
+    timing_map = {"DeepSeek Model": (timing or {}).get("agent_ms", 0),
+                  "Result Reply Composer": composer_ms}
     for usage_row in (usage_rows or []):
+        meta = usage_row.get("metadata")
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        node = meta.get("model_node") if isinstance(meta, dict) else None
+        if node in timing_map:
+            try:
+                usage_row["latency_ms"] = int(timing_map[node])
+            except (TypeError, ValueError):
+                pass
         await repository.insert_ai_request_usage(usage_row)
 
     fresh_offer = await repository.read_fresh_offer_midturn({"normalized": normalized})
