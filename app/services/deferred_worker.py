@@ -31,6 +31,14 @@ LEASE_SECONDS = 120
 POLL_SECONDS = 5.0
 DELIVERY_OK_RE = re.compile(r"^ok:\s*[0-9a-f-]{36}$", re.IGNORECASE)
 
+# Webhook self-healing: deactivating any n8n workflow with a Telegram trigger
+# DELETES the bot webhook (learned the hard way 2026-09-25 — the channel went
+# dark until the webhook was re-asserted). The worker re-asserts it periodically.
+EXPECTED_WEBHOOK_URL = "https://core-engine-production-970a.up.railway.app/channels/telegram/webhook"
+TELEGRAM_WEBHOOK_SECRET = "k2tgw8h20260922"
+WEBHOOK_CHECK_EVERY_POLLS = 120   # 120 × 5s ≈ every 10 minutes
+_poll_count = 0
+
 _task: Optional[asyncio.Task] = None
 _stop = asyncio.Event()
 
@@ -198,10 +206,41 @@ async def process_one_batch() -> bool:
     return True
 
 
+async def _assert_telegram_webhook() -> None:
+    """Re-assert the production webhook when something deregisters it."""
+    global _poll_count
+    _poll_count += 1
+    if _poll_count % WEBHOOK_CHECK_EVERY_POLLS != 0:
+        return
+    try:
+        import httpx
+        token = settings.TELEGRAM_ALERT_BOT_TOKEN
+        if not token:
+            return
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"https://api.telegram.org/bot{token}/getWebhookInfo")
+            info = r.json().get("result", {})
+            if info.get("url") == EXPECTED_WEBHOOK_URL:
+                return
+            alerting.report(
+                "webhook_missing",
+                f"Telegram webhook was '{info.get('url') or 'EMPTY'}' — re-asserting the production URL.",
+                cooldown=False)
+            await client.post(f"https://api.telegram.org/bot{token}/setWebhook", json={
+                "url": EXPECTED_WEBHOOK_URL,
+                "secret_token": TELEGRAM_WEBHOOK_SECRET,
+                "allowed_updates": ["message", "edited_message", "channel_post", "edited_channel_post"],
+            })
+        logger.warning("telegram.webhook_reasserted")
+    except Exception as exc:
+        alerting.report_exception("webhook_assert_failed", exc)
+
+
 async def _loop() -> None:
     logger.info("deferred.worker_started")
     while not _stop.is_set():
         try:
+            await _assert_telegram_webhook()
             claimed = await process_one_batch()
             if not claimed:
                 await asyncio.sleep(POLL_SECONDS)
