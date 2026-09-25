@@ -1223,9 +1223,12 @@ async def get_clinic_info(ctx: dict) -> dict:
                WHERE clinic_id = $1::uuid AND deleted_at IS NULL AND is_active = true
                ORDER BY name""",
             _uuid(clinic_id))
+    def _iso(value: Any) -> Any:
+        return value.isoformat() if hasattr(value, "isoformat") else value
+
     return {
-        "hours": [dict(r) for r in hours],
-        "branches": [dict(r) for r in branches],
+        "hours": [{k: _iso(v) for k, v in dict(r).items()} for r in hours],
+        "branches": [{k: _iso(v) for k, v in dict(r).items()} for r in branches],
     }
 
 

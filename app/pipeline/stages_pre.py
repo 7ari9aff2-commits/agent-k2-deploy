@@ -1326,6 +1326,39 @@ def _same_field(a: Any, b: Any) -> bool:
     return a == b or (a == "visit_type" and b == "service") or (a == "service" and b == "visit_type")
 
 
+def _json_safe(value: Any) -> Any:
+    """JSON-safe guard at the state-save boundary (deep review 2026-09-25).
+
+    Non-serializable strays (the _UNDEFINED sentinel, datetime.time/date from
+    asyncpg rows, Decimal) are neutralized deterministically: sentinels drop to
+    None, temporal values to their ISO string. Valid values pass untouched —
+    this only fires on values json.dumps could not handle anyway.
+    """
+    if value is _UNDEFINED or type(value) is object:
+        return None
+    if isinstance(value, (str, bool, int, float)) or value is None:
+        return value
+    if isinstance(value, (datetime,)):
+        return value.isoformat()
+    try:
+        import datetime as _dt
+        if isinstance(value, (_dt.time, _dt.date)):
+            return value.isoformat()
+    except Exception:
+        pass
+    try:
+        from decimal import Decimal
+        if isinstance(value, Decimal):
+            return float(value)
+    except Exception:
+        pass
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
 def build_persistent_conversation_state(item: Dict[str, Any], inputs: Dict[str, Any]) -> Dict[str, Any]:
     """Source node: Build Persistent Conversation State (extracted/code/Build_Persistent_Conversation_State.js).
 
@@ -2356,6 +2389,11 @@ def build_persistent_conversation_state(item: Dict[str, Any], inputs: Dict[str, 
         )
     oaa = _prop(output, "availability_alternatives")
     froa = _prop(fresh_offer_row, "availability_alternatives")
+    booking_context = _json_safe(booking_context)
+    slot_state = _json_safe(slot_state)
+    facts = _json_safe(facts)
+    target = _json_safe(target)
+    superseded_operation = _json_safe(superseded_operation)
     state_data: Dict[str, Any] = {
         **state_previous,
         "patient_data_review": merged_patient_data_review,
