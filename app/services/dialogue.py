@@ -316,6 +316,22 @@ PATIENT_APPOINTMENTS_TOOL = {
     },
 }
 
+def recall_session_history(state_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Recall_Session_History executor — server-owned history only.
+
+    Returns the stored previous-session summary when one exists; otherwise an
+    honest not-found signal the agent must relay verbatim (never fabricated
+    history)."""
+    st = state_data if isinstance(state_data, dict) else {}
+    summary = st.get("previous_session_summary")
+    if isinstance(summary, dict) and summary:
+        return {"found": True, "previous_session_summary": summary}
+    return {"found": False,
+            "note": "No previous-session summary is stored for this conversation. "
+                    "Tell the patient you cannot find that part of the history "
+                    "and ask them to restate what they need."}
+
+
 SESSION_RECALL_TOOL = {
     "type": "function",
     "function": {
@@ -566,15 +582,8 @@ async def call_primary_model_with_tool(user_message: str, context: Dict[str, Any
             elif fn_name == "Recall_Session_History":
                 # Server-owned data: the stored summary + the compacted raw turns.
                 # The agent cannot fabricate history — only quote what was saved.
-                st_ctx = context.get("state_data") if isinstance(context.get("state_data"), dict) else {}
-                summary = st_ctx.get("previous_session_summary")
-                if isinstance(summary, dict) and summary:
-                    tool_result = {"found": True, "previous_session_summary": summary}
-                else:
-                    tool_result = {"found": False,
-                                   "note": "No previous-session summary is stored for this conversation. "
-                                           "Tell the patient you cannot find that part of the history "
-                                           "and ask them to restate what they need."}
+                tool_result = recall_session_history(
+                    context.get("state_data") if isinstance(context.get("state_data"), dict) else {})
             else:
                 tool_result = {"error": "UNKNOWN_TOOL"}
 

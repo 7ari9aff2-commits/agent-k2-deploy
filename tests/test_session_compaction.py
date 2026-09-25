@@ -77,28 +77,19 @@ def test_agent_payload_keeps_dialogue_within_window():
     assert "previous_session_summary" not in payload
 
 
-def test_recall_tool_executor_serves_stored_summary():
+def test_recall_executor_found_and_not_found():
     """Recall_Session_History: found=True with the stored summary; found=False with
-    an honest 'cannot find it' instruction — never fabricated history."""
-    import asyncio
-    from app.services import dialogue as dlg
+    an honest not-found note — never fabricated history."""
+    from app.core import session_compact as sc
+    from app.services.dialogue import recall_session_history
 
     st = _state(_iso_offset(3))
-    # simulate the state after a compacted turn: summary stored, raw turns dropped
-    from app.core import session_compact as sc
-    st["previous_session_summary"] = sc.build_session_summary(st)
+    summary = sc.build_session_summary(st)
+    st["previous_session_summary"] = summary
+    out = recall_session_history(st)
+    assert out["found"] is True
+    assert out["previous_session_summary"]["patient_name"] == "حسام"
 
-    async def fake_repo(clinic_id, patient_id, booking_number=None):
-        return []
-
-    # reach the executor through the internal loop contract: it reads context.state_data
-    import app.db.repository as repo_mod
-    orig = repo_mod.get_patient_appointments
-    repo_mod.get_patient_appointments = fake_repo
-    try:
-        # invoke the tool-execution branch directly via the module's executor map
-        ctx = {"clinic_id": "cl", "patient_id": "pa", "state_data": st}
-        tool = [t for t in dlg.RECEPTIONIST_TOOLS if t["function"]["name"] == "Recall_Session_History"][0]
-        assert tool is not None
-    finally:
-        repo_mod.get_patient_appointments = orig
+    out = recall_session_history({})
+    assert out["found"] is False
+    assert "restate" in out["note"]
