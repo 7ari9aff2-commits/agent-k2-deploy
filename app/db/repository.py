@@ -56,6 +56,7 @@ __all__ = [
     "execute_approved_reschedule_appointment",
     "log_agent_audit_entry",
     "insert_ai_request_usage",
+    "get_clinic_info",
     "log_outgoing_message",
     "save_conversation_state_with_retry",
     "get_patient_appointments",
@@ -1196,6 +1197,36 @@ async def save_conversation_state_with_retry(normalized: dict, save_body: dict) 
         # keep it on the retry envelope unless the RPC itself returned that column.
         retry.setdefault("semantic_merge_conflict", semantic_conflict)
     return {"initial": initial, "retry": retry}
+
+
+async def get_clinic_info(ctx: dict) -> dict:
+    """Clinic working hours + active branches (Get_Clinic_Info tool, added 2026-09-25).
+
+    ctx keys: clinic_id (required). Returns {"hours": [...], "branches": [...]}.
+    """
+    clinic_id = _js_str(_js_or((ctx or {}).get("clinic_id"), ""))
+    if not clinic_id:
+        return {}
+    from app.db.pool import get_pool
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        hours = await conn.fetch(
+            """SELECT day_of_week, open_time, close_time, is_off_day
+               FROM clinic_business_hours
+               WHERE clinic_id = $1::uuid AND deleted_at IS NULL
+               ORDER BY day_of_week""",
+            _uuid(clinic_id))
+        branches = await conn.fetch(
+            """SELECT name, address, phone
+               FROM branches
+               WHERE clinic_id = $1::uuid AND deleted_at IS NULL AND is_active = true
+               ORDER BY name""",
+            _uuid(clinic_id))
+    return {
+        "hours": [dict(r) for r in hours],
+        "branches": [dict(r) for r in branches],
+    }
 
 
 async def get_patient_appointments(

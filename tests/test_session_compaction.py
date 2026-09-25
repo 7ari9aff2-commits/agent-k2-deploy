@@ -93,3 +93,13 @@ def test_recall_executor_found_and_not_found():
     out = recall_session_history({})
     assert out["found"] is False
     assert "restate" in out["note"]
+
+
+def test_clinic_info_tool_registered_and_executor_wired():
+    """Get_Clinic_Info (B2): the 6th tool — hours/branches from DB, grounded."""
+    from app.services import dialogue as dlg
+    tools = [t["function"]["name"] for t in dlg.RECEPTIONIST_TOOLS]
+    assert "Get_Clinic_Info" in tools
+    # executor branch reads the clinic context — verify the repository fn exists
+    import app.db.repository as repo_mod
+    assert hasattr(repo_mod, "get_clinic_info")

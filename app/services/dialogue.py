@@ -384,6 +384,19 @@ def try_synthesize_confirmation_turn(state_data: Any, user_message: str) -> Opti
     }, ensure_ascii=False, separators=(",", ":"))
 
 
+CLINIC_INFO_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "Get_Clinic_Info",
+        "description": (
+            "Retrieve the clinic's working hours, address, and active branches. "
+            "Call this when the patient asks about working hours, opening/closing times, "
+            "the clinic location or address, or available branches."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
 SESSION_RECALL_TOOL = {
     "type": "function",
     "function": {
@@ -408,6 +421,7 @@ RECEPTIONIST_TOOLS = [
     SERVICES_DOCTORS_TOOL,
     PATIENT_APPOINTMENTS_TOOL,
     SESSION_RECALL_TOOL,
+    CLINIC_INFO_TOOL,
 ]
 
 
@@ -630,6 +644,13 @@ async def call_primary_model_with_tool(user_message: str, context: Dict[str, Any
                     tool_result = {"appointments": appts, "count": len(appts)}
                 except Exception as exc:
                     tool_result = {"error": str(exc), "appointments": []}
+
+            elif fn_name == "Get_Clinic_Info":
+                try:
+                    tool_result = await repository.get_clinic_info(
+                        {"clinic_id": context.get("clinic_id")})
+                except Exception as exc:
+                    tool_result = {"error": str(exc), "hours": [], "branches": []}
 
             elif fn_name == "Recall_Session_History":
                 # Server-owned data: the stored summary + the compacted raw turns.
