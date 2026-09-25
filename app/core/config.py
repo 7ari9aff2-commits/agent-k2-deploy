@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     # Deferred-batch worker (in-process port of the n8n Deferred Message Worker):
     # replay deferred bursts through the core, deliver via the n8n dispatcher.
     DEFERRED_WORKER_ENABLED: bool = True
+
+    # Per-clinic token metering: model -> {input_per_1m, output_per_1m} in the
+    # currency below. Cost is computed per recorded LLM call (exact provider
+    # tokens preferred). Unpriced models record tokens with cost = null.
+    TOKEN_PRICES_JSON: str = ""
+    USAGE_CURRENCY: str = "USD"
     OUTBOUND_DISPATCHER_URL: str = "https://n8n-production-33955.up.railway.app/webhook/inbox-outbound"
     OUTBOUND_DISPATCHER_TOKEN: str = ""
     SUPABASE_SECRET_KEY: str = ""

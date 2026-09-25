@@ -470,24 +470,36 @@ async def _run(inbound: Dict[str, Any], raw_headers: Dict[str, str], raw_body: b
         """
         return {"agent_ms": agent_ms, "composer_ms": composer_ms, "agent_usage": agent_usage}
 
+    # ── B4 cheap-turn short-circuit (2026-09-25): an affirmation/negation of a
+    # live confirmation target needs NO model call — the contract is synthesized
+    # deterministically and the whole downstream (orchestrator → executor →
+    # composer) runs unchanged. Saves a full primary LLM call on every clean
+    # confirm/deny turn; anything ambiguous falls through to the normal path.
+    short_contract = dialogue.try_synthesize_confirmation_turn(state_data, normalized.get("message_text"))
     _agent_started = time.time()
-    try:
-        agent_turn = await dialogue.call_primary_model_with_tool(user_message, context={
-            "clinic_id": normalized.get("clinic_id"),
-            "conversation_id": normalized.get("conversation_id"),
-            "patient_id": normalized.get("patient_id"),
-            "state_data": state_data,
-            "clinic_context": clinic_context,
-            "persona_context": persona_context,
-        })
-        raw_llm_output = str(agent_turn)
-        tool_events = list(getattr(agent_turn, "tool_events", []) or [])
-        agent_usage = list(getattr(agent_turn, "usage", []) or [])
-    except Exception:
-        # The deterministic core still completes safely. The final composer gets the
-        # verified policy/DB facts and can state that information is unavailable.
-        logger.exception("primary LLM failed — degrading via MODEL_CALL_FAILED path")
-        raw_llm_output = ""
+    if short_contract is not None:
+        logger.info("b4.short_circuit_confirmed_turn")
+        raw_llm_output = short_contract
+        tool_events = []
+        agent_usage = []
+    else:
+        try:
+            agent_turn = await dialogue.call_primary_model_with_tool(user_message, context={
+                "clinic_id": normalized.get("clinic_id"),
+                "conversation_id": normalized.get("conversation_id"),
+                "patient_id": normalized.get("patient_id"),
+                "state_data": state_data,
+                "clinic_context": clinic_context,
+                "persona_context": persona_context,
+            })
+            raw_llm_output = str(agent_turn)
+            tool_events = list(getattr(agent_turn, "tool_events", []) or [])
+            agent_usage = list(getattr(agent_turn, "usage", []) or [])
+        except Exception:
+            # The deterministic core still completes safely. The final composer gets the
+            # verified policy/DB facts and can state that information is unavailable.
+            logger.exception("primary LLM failed — degrading via MODEL_CALL_FAILED path")
+            raw_llm_output = ""
     agent_ms = int((time.time() - _agent_started) * 1000)
 
     # Recover entities the model carried in its tool-call arguments but dropped from the

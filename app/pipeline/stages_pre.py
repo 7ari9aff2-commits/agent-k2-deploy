@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from app.core import session_compact
+from app.core.config import settings
 from app.core.js_semantics import is_finite_num as _is_finite_num
 
 # ---------------------------------------------------------------------------
@@ -2726,6 +2727,42 @@ def _configured_model(default: str = "deepseek/deepseek-v3.2") -> str:
 _USAGE_MODEL_FALLBACK = "deepseek/deepseek-v3.2"
 
 
+_TOKEN_PRICE_CACHE: Dict[str, Any] = {}
+
+
+def _token_prices() -> Dict[str, Any]:
+    """Parsed TOKEN_PRICES_JSON: {model: {input_per_1m, output_per_1m}}. Cached."""
+    import json as _json
+    raw = str(getattr(settings, "TOKEN_PRICES_JSON", "") or "").strip()
+    if not raw:
+        return {}
+    if "prices" in _TOKEN_PRICE_CACHE and _TOKEN_PRICE_CACHE.get("_raw") == raw:
+        return _TOKEN_PRICE_CACHE["prices"]
+    try:
+        parsed = _json.loads(raw)
+        ok = all(isinstance(m, dict) and "input_per_1m" in m and "output_per_1m" in m
+                 for m in parsed.values()) if isinstance(parsed, dict) else False
+        _TOKEN_PRICE_CACHE.clear()
+        _TOKEN_PRICE_CACHE["_raw"] = raw
+        _TOKEN_PRICE_CACHE["prices"] = parsed if ok else {}
+    except Exception:
+        _TOKEN_PRICE_CACHE.clear()
+        _TOKEN_PRICE_CACHE["prices"] = {}
+    return _TOKEN_PRICE_CACHE["prices"]
+
+
+def _row_cost(model: str, input_tokens: Any, output_tokens: Any) -> Optional[float]:
+    """Exact per-call cost from the configured per-1M prices; None when unpriced."""
+    prices = _token_prices().get(str(model or ""))
+    if not prices or input_tokens is None or output_tokens is None:
+        return None
+    try:
+        cost = (float(input_tokens) / 1_000_000.0) * float(prices["input_per_1m"])              + (float(output_tokens) / 1_000_000.0) * float(prices["output_per_1m"])
+        return round(cost, 6)
+    except (TypeError, ValueError):
+        return None
+
+
 def _read_model_tokens(rows: Any) -> float:
     """JS readModelTokens: sum provider tokenUsage across all items of a model node."""
     total = 0.0
@@ -2813,7 +2850,8 @@ def compute_ai_request_usage_deterministic(item: Dict[str, Any], inputs: Dict[st
     rows: List[Dict[str, Any]] = []
 
     def _push_row(node_name: str, exact_tokens: Any, input_est: Any, output_est: Any,
-                  exact_input: Any = None, exact_output: Any = None) -> None:
+                  exact_input: Any = None, exact_output: Any = None,
+                  model: Any = None) -> None:
         exact_num = _js_number(exact_tokens)
         exact = exact_num if (_is_finite_num(exact_num) and exact_num > 0) else None
         parts_given = (_is_finite_num(_js_number(exact_input)) and _js_number(exact_input) > 0) or                       (_is_finite_num(_js_number(exact_output)) and _js_number(exact_output) > 0)
@@ -2841,11 +2879,12 @@ def compute_ai_request_usage_deterministic(item: Dict[str, Any], inputs: Dict[st
             "clinic_id": _first_truthy(_prop(ctx, "clinic_id"), None),
             "conversation_id": _first_truthy(_prop(ctx, "conversation_id"), None),
             "provider": "deepseek",
-            "model": _configured_model(_USAGE_MODEL_FALLBACK),
+            "model": _configured_model(_USAGE_MODEL_FALLBACK) if model is None else str(model),
             "input_tokens": _int_if_integral(input_tokens) if input_tokens is not None else None,
             "output_tokens": _int_if_integral(output_tokens) if output_tokens is not None else None,
             "total_tokens": _int_if_integral(total),
-            "cost": None,
+            "cost": _row_cost(_configured_model(_USAGE_MODEL_FALLBACK) if model is None else str(model),
+                              input_tokens, output_tokens),
             "response_received_at": now_iso,
             "metadata": _json_stringify(meta),
             "request_payload": _json_stringify({"model_node": node_name, "estimated": exact is None}),
@@ -2858,7 +2897,8 @@ def compute_ai_request_usage_deterministic(item: Dict[str, Any], inputs: Dict[st
     if reply2:
         _composer_parts = _read_model_tokens_parts(inputs.get("deepseek_result_model"))
         _push_row("Result Reply Composer", _read_model_tokens(inputs.get("deepseek_result_model")), _u16_len(ctx2) + 2400, _u16_len(reply2),
-                  exact_input=_composer_parts["input"], exact_output=_composer_parts["output"])
+                  exact_input=_composer_parts["input"], exact_output=_composer_parts["output"],
+                  model=str(getattr(settings, "LLM_REPAIR_MODEL", "") or "") or None)
     return rows
 
 

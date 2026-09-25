@@ -332,6 +332,58 @@ def recall_session_history(state_data: Dict[str, Any]) -> Dict[str, Any]:
                     "and ask them to restate what they need."}
 
 
+# B4 cheap-turn short-circuit (2026-09-25): an affirmation/negation turn inside
+# AWAIT_CONFIRMATION needs NO model call — the contract is synthesized from the
+# bound target. Vocabulary is deliberately conservative: every token must match,
+# nothing else may appear in the message.
+def _norm_dialect_token(t: str) -> str:
+    return (t.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+             .replace("ى", "ي").strip())
+
+
+_AFFIRM_TOKENS = {_norm_dialect_token(t) for t in {
+    "ايوه", "اه", "اها", "نعم", "تمام", "اكد", "اتفقنا",
+    "ماشي", "اوكي", "ok", "yes", "طب", "احفظ", "سجل", "ثبت", "ايوا",
+}}
+_NEGATE_TOKENS = {_norm_dialect_token(t) for t in {
+    "لا", "مش", "ملغي", "لغيت", "لغاء", "no", "cancel", "استني", "مستني",
+}}
+
+
+def try_synthesize_confirmation_turn(state_data: Any, user_message: str) -> Optional[str]:
+    """B4: when the state holds a live confirmation target and the message is a
+    short pure affirm/negation, synthesize the exact contract the model would emit
+    (skipping the primary LLM call). Returns None when the turn is not a clean
+    confirm/negate — the normal LLM path handles everything else."""
+    import re as _re
+    st = state_data if isinstance(state_data, dict) else {}
+    target = st.get("confirmation_target")
+    if not (isinstance(target, dict) and target.get("confirmation_id") and target.get("action")):
+        return None
+    text = str(user_message or "").strip()
+    if not text or len(text) > 40:
+        return None
+    tokens = [_norm_dialect_token(t) for t in _re.findall(r"[\w]+", text.lower()) if t]
+    if not (1 <= len(tokens) <= 4):
+        return None
+    if all(t in _AFFIRM_TOKENS for t in tokens):
+        intent = "affirmative"
+    elif all(t in _NEGATE_TOKENS for t in tokens):
+        intent = "negative"
+    else:
+        return None
+    selection = ({"kind": "presented_match", "rank": 1}
+                 if target.get("action") == "create_appointment" else {"kind": "none", "rank": None})
+    return json.dumps({
+        "schema_version": "k2.dialogue.v4", "reply": text,
+        "turn": {"intent": "confirmation", "relation_to_previous_turn": "confirmation"},
+        "confidence": 1.0, "ambiguous": [], "confirmation": {"intent": intent},
+        "selection": selection, "entities": {},
+        "operation_proposal": {"type": "none", "requested": False},
+        "escalate": None,
+    }, ensure_ascii=False, separators=(",", ":"))
+
+
 SESSION_RECALL_TOOL = {
     "type": "function",
     "function": {
